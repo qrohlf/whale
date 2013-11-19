@@ -1,0 +1,128 @@
+#!/usr/bin/env ruby
+require 'rubygems'
+require 'net/ssh'
+require 'net/scp'
+require 'commander/import'
+require './config.rb'
+require 'timeout'
+require 'parallel'
+
+program :name, 'manatee'
+program :version, '0.0.1'
+program :description, 'network control system'
+
+
+command :run do |c|
+  c.syntax = 'manatee run "[command --opts]"'
+  c.summary = 'run a command on all machines'
+  c.description = ''
+  c.action do |args, options|
+    cmd = args.first;
+    ssh_all((1...22)) do |ssh, user, host|
+      puts "#{user}@#{host}$ #{cmd}"
+      puts ssh.exec!(cmd);
+    end
+  end
+end
+
+command :render do |c|
+  c.syntax = 'manatee render --mkdir -n numberofmachines -f framelimit'
+  c.summary = 'distributed rendering'
+  c.description = ''
+  c.action do |args, options|
+    targets = [2]
+    totalframes = 72
+
+    puts "packaging installer"
+    `./package_installer.sh`
+    
+    puts "creating install directory"
+    ssh_all(targets) do |ssh, user, host|
+      ssh.exec!("mkdir #{INSTALL_LOCATION}")
+      puts "success!"
+    end
+
+    puts "uploading installer"
+    scp_all((targets), "./install.zip", "#{INSTALL_LOCATION}/install.zip");
+    puts "\n"
+
+    # compile files
+    puts "compiling renderer"
+    ssh_all(targets) do |ssh, user, host|
+      puts "...connection established"
+      ssh.exec!("cd #{INSTALL_LOCATION} && unzip -o install.zip")
+      puts "...installer unzipped"
+      ssh.exec!("mkdir #{INSTALL_LOCATION}/install/bin")
+      puts "...bin directory created"
+      ssh.exec!("cd #{INSTALL_LOCATION}/install/ && make lab2.1")
+      puts "...lab2.1 compiled"
+    end
+
+    puts "rendering files"
+    Parallel.each_with_index(targets) do |i, index|
+      startframe = (totalframes/targets.count+1)*index
+      endframe = startframe+(totalframes/targets.count+1)
+      endframe = totalframes if endframe > totalframes
+      target = MACHINES[i];
+      begin 
+        Net::SSH.start(target[:host], target[:user], :password => target[:pass], :timeout => 3) do |ssh|
+          print "beginning rendering of frames #{startframe} to #{endframe} on #{target[:host]}\n"
+          (startframe..endframe).each do |j|
+            puts ssh.exec!("cd #{INSTALL_LOCATION}/install && xvfb-run bin/lab2.1 lab21-mov #{j}") # currently segfaulting for reasons unknown
+            # now scp the file to localhost
+            Net::SCP.download!(target[:host], target[:user], "#{INSTALL_LOCATION}/install/lab21-mov#{sprintf("%04d", j)}.xwd", "./results/", :ssh => { :password => target[:pass] })
+          end
+        end
+      rescue Timeout::Error
+        puts "Connection timed out on #{target[:host]}"
+      rescue Net::SSH::AuthenticationFailed
+        puts "Authentication failed on #{target[:host]}"
+      rescue IOError
+        puts "SSH session closed by target"
+      rescue Errno::ECONNREFUSED
+        puts "SSH connection refused by target"
+      end
+    end
+  end
+end
+
+
+def ssh_all(machines, options = {})
+  machines.each do |i| 
+      target = MACHINES[i];
+      puts "############ initiating SSH to #{target[:host]} ############"
+      if target[:host] == SOURCE[:host]
+        puts "Skipping #{target[:host]} (control server)"
+        next
+      end
+
+      begin 
+        Net::SSH.start(target[:host], target[:user], :password => target[:pass], :timeout => 3) do |ssh|
+          yield ssh, target[:user], target[:host]
+        end
+      rescue Timeout::Error
+        puts "Connection timed out on #{target[:host]}"
+      rescue Net::SSH::AuthenticationFailed
+        puts "Authentication failed on #{target[:host]}"
+      rescue IOError
+        puts "SSH session closed by target"
+      rescue Errno::ECONNREFUSED
+        puts "SSH connection refused by target"
+      end
+      puts "\n"
+    end
+  end
+
+def scp_all(machines, file, dest)
+  machines.each do |i| 
+      target = MACHINES[i];
+      puts "############ initiating SCP to #{target[:host]} ############"
+      begin
+        Net::SCP.upload!(target[:host], target[:user], file, dest, :ssh => { :password => target[:pass] })
+        puts "SCP upload to #{target[:host]} successful"
+      rescue Net::SCP::Error
+        puts "SCP to #{target[:host]} unsuccessful"
+      end
+    end
+  end
+
