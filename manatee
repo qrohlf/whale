@@ -5,11 +5,14 @@ require 'net/scp'
 require 'commander/import'
 require './config.rb'
 require 'timeout'
-require 'parallel'
 
 program :name, 'manatee'
 program :version, '0.0.1'
 program :description, 'network control system'
+
+
+targets = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+totalframes = 72
 
 
 command :run do |c|
@@ -18,20 +21,27 @@ command :run do |c|
   c.description = ''
   c.action do |args, options|
     cmd = args.first;
-    ssh_all((1...22)) do |ssh, user, host|
+    ssh_all(targets) do |ssh, user, host|
       puts "#{user}@#{host}$ #{cmd}"
       puts ssh.exec!(cmd);
     end
   end
 end
 
-command :render do |c|
-  c.syntax = 'manatee render --mkdir -n numberofmachines -f framelimit'
+command :clean do |c|
+  c.syntax = 'manatee clean'
+  c.summary = 'clean the results dir'
+  c.description = ''
+  c.action do |args, options|
+    puts `rm -f results/*`
+  end
+end
+
+command :install do |c|
+  c.syntax = 'manatee install --mkdir -n numberofmachines -f framelimit'
   c.summary = 'distributed rendering'
   c.description = ''
   c.action do |args, options|
-    targets = [2]
-    totalframes = 72
 
     puts "packaging installer"
     `./package_installer.sh`
@@ -57,32 +67,58 @@ command :render do |c|
       ssh.exec!("cd #{INSTALL_LOCATION}/install/ && make lab2.1")
       puts "...lab2.1 compiled"
     end
+  end
+end
 
+command :render do |c|
+  c.syntax = 'manatee render'
+  c.summary = 'distributed rendering'
+  c.description = ''
+
+  c.action do |args, options|
     puts "rendering files"
-    Parallel.each_with_index(targets) do |i, index|
-      startframe = (totalframes/targets.count+1)*index
-      endframe = startframe+(totalframes/targets.count+1)
-      endframe = totalframes if endframe > totalframes
-      target = MACHINES[i];
-      begin 
-        Net::SSH.start(target[:host], target[:user], :password => target[:pass], :timeout => 3) do |ssh|
-          print "beginning rendering of frames #{startframe} to #{endframe} on #{target[:host]}\n"
-          (startframe..endframe).each do |j|
-            puts ssh.exec!("cd #{INSTALL_LOCATION}/install && xvfb-run bin/lab2.1 lab21-mov #{j}") # currently segfaulting for reasons unknown
-            # now scp the file to localhost
-            Net::SCP.download!(target[:host], target[:user], "#{INSTALL_LOCATION}/install/lab21-mov#{sprintf("%04d", j)}.xwd", "./results/", :ssh => { :password => target[:pass] })
+    threads = Array.new
+    targets.each_with_index do |i, index| #todo: THREEEEAAAAAADS
+      threads << Thread.new(i, index) do |i, index|
+        puts "starting thread #{i}"
+        startframe = (totalframes/targets.count+1)*index
+        endframe = startframe+(totalframes/targets.count+1)
+        endframe = totalframes if endframe > totalframes
+        target = MACHINES[i];
+        # sleep 10
+        begin 
+          Net::SSH.start(target[:host], target[:user], :password => target[:pass], :timeout => 3) do |ssh|
+            print "beginning rendering of frames #{startframe} to #{endframe} on #{target[:host]}\n"
+            ssh.exec!("Xvfb :30 -ac -screen 0 1024x768x24")
+            
+            (startframe..endframe).each do |j|
+              puts "rendering frame #{j}"
+              puts ssh.exec!("cd #{INSTALL_LOCATION}/install && DISPLAY=':30' bin/lab2.1 lab21-mov #{j}") # currently segfaulting for reasons unknown
+              # now scp the file to localhost
+              result = "#{INSTALL_LOCATION}/install/lab21-mov#{sprintf("%04d", j)}.xwd"
+              puts "downloading #{result}... from #{target[:host]}"
+              Timeout::timeout(15) do 
+                Net::SCP.download!(target[:host], target[:user], result, "./results/", :ssh => { :password => target[:pass] })
+              end
+            end
+
           end
+        rescue Timeout::Error
+          puts "Connection timed out on #{target[:host]}"
+        rescue Net::SCP::Error
+          puts "SCP Error on #{target[:host]}"
+        rescue Net::SSH::AuthenticationFailed
+          puts "Authentication failed on #{target[:host]}"
+        rescue IOError
+          puts "SSH session closed by target"
+        rescue Errno::ECONNREFUSED
+          puts "SSH connection refused by target"
         end
-      rescue Timeout::Error
-        puts "Connection timed out on #{target[:host]}"
-      rescue Net::SSH::AuthenticationFailed
-        puts "Authentication failed on #{target[:host]}"
-      rescue IOError
-        puts "SSH session closed by target"
-      rescue Errno::ECONNREFUSED
-        puts "SSH connection refused by target"
       end
+      #ssh.loop # wait for all frames in job to finish rendering & downloading
     end
+    threads.each(&:join)
+    puts "Rendering Complete"
   end
 end
 
