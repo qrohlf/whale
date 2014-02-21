@@ -6,19 +6,30 @@ require 'commander/import'
 require './config.rb'
 require 'timeout'
 
-program :name, 'manatee'
+program :name, 'whale'
 program :version, '0.0.1'
 program :description, 'network control system'
 
 
-targets = [2, 3, 4, 5, 6, 7, 9, 10, 11, 12];
-totalframes = 72
+targets = (2...6);
+totalframes = 10
 
 
 command :run do |c|
-  c.syntax = 'manatee run "[command --opts]"'
+  c.syntax = 'whale run "[command --opts]"'
   c.summary = 'run a command on all machines'
-  c.description = ''
+  c.action do |args, options|
+    cmd = args.first;
+    ssh_all(targets) do |ssh, user, host|
+      puts "#{user}@#{host}$ #{cmd}"
+      puts ssh.exec!(cmd);
+    end
+  end
+end
+
+command :up do |c|
+  c.syntax = 'whale up'
+  c.summary = 'check which targets are up'
   c.action do |args, options|
     cmd = args.first;
     ssh_all(targets) do |ssh, user, host|
@@ -29,7 +40,7 @@ command :run do |c|
 end
 
 command :clean do |c|
-  c.syntax = 'manatee clean'
+  c.syntax = 'whale clean'
   c.summary = 'clean the results dir'
   c.description = ''
   c.action do |args, options|
@@ -39,7 +50,7 @@ command :clean do |c|
 end
 
 command :install do |c|
-  c.syntax = 'manatee install --mkdir -n numberofmachines -f framelimit'
+  c.syntax = 'whale install --mkdir -n numberofmachines -f framelimit'
   c.summary = 'distributed rendering'
   c.description = ''
   c.option '--mkdir', 'create install directory'
@@ -76,7 +87,7 @@ command :install do |c|
 end
 
 command :render do |c|
-  c.syntax = 'manatee render'
+  c.syntax = 'whale render'
   c.summary = 'distributed rendering'
   c.description = ''
   c.option '--transfer', 'download the results'
@@ -101,13 +112,13 @@ command :render do |c|
       end
     end
     # wait for all threads to finish
-    threads.each(&:join)
+    threads.each(&:join) #this is hanging on the transfer
     puts "Rendering Complete"
   end
 end
 
 command :transfer do |c|
-  c.syntax = 'manatee transfer'
+  c.syntax = 'whale transfer'
   c.summary = 'distributed rendering'
   c.description = ''
 
@@ -138,7 +149,7 @@ end
 def render(frames, target) 
   Net::SSH.start(target[:host], target[:user], :password => target[:pass], :timeout => 5) do |ssh|
     #clean previous run synchronously
-    ssh.exec("cd #{INSTALL_LOCATION}/install && rm -rf ./*.xwd")
+    ssh.exec!("cd #{INSTALL_LOCATION}/install && rm -rf ./*.xwd")
     #start framebuffer synchronously
     print "starting framebuffer on #{target[:host]}\n"
     ssh.exec!("Xvfb :30 -ac -screen 0 1024x768x24")
@@ -149,6 +160,7 @@ def render(frames, target)
   end
 end
 
+# make sure ./results exists!!!
 def transfer(frames, target)
   files = frames.map { |f| "#{INSTALL_LOCATION}/install/lab21-mov#{sprintf("%04d", f)}.xwd" }
   print("transferring frames #{frames.first} to #{frames.last} from #{target[:host]}\n")

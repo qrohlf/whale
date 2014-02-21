@@ -1,3 +1,4 @@
 *.pstore
 .DS_Store
 install.zip
+results/*
