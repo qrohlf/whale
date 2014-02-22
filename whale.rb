@@ -5,14 +5,16 @@ require 'net/scp'
 require 'commander/import'
 require './config.rb'
 require 'timeout'
+require 'colorize'
 
 program :name, 'whale'
 program :version, '0.0.1'
 program :description, 'network control system'
+program :always_trace!
 
 
-targets = (2...6);
-totalframes = 10
+targets = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 23, 24, 25, 26, 27, 28, 29];
+totalframes = 72
 
 
 command :run do |c|
@@ -31,11 +33,30 @@ command :up do |c|
   c.syntax = 'whale up'
   c.summary = 'check which targets are up'
   c.action do |args, options|
-    cmd = args.first;
-    ssh_all(targets) do |ssh, user, host|
-      puts "#{user}@#{host}$ #{cmd}"
-      puts ssh.exec!(cmd);
+    puts "Checking who's up"
+    threads = Array.new
+    targets.each_with_index do |i, index| #todo: THREEEEAAAAAADS
+      threads << Thread.new(i, index) do |i, index|
+        target = MACHINES[i]
+        up = false
+        begin 
+          Net::SSH.start(target[:host], target[:user], :password => target[:pass], :timeout => 3) do |ssh|
+            up = true if ssh.exec!('hostname')
+          end
+        rescue Exception
+          
+        end
+
+        if up
+          print "#{target[:host]} is #{'up'.green}\n" 
+        else
+          print "#{target[:host]} is #{'down'.red}\n" 
+        end
+      end
     end
+    # wait for all threads to finish
+    threads.each(&:join) #this is hanging on the transfer
+    puts "Check Complete"
   end
 end
 
@@ -113,6 +134,7 @@ command :render do |c|
     end
     # wait for all threads to finish
     threads.each(&:join) #this is hanging on the transfer
+    sleep 1
     puts "Rendering Complete"
   end
 end
@@ -164,14 +186,19 @@ end
 def transfer(frames, target)
   files = frames.map { |f| "#{INSTALL_LOCATION}/install/lab21-mov#{sprintf("%04d", f)}.xwd" }
   print("transferring frames #{frames.first} to #{frames.last} from #{target[:host]}\n")
-  transfers = Array.new
-  Net::SCP.start(target[:host], target[:user], :password => target[:pass]) do |scp|
-    files.each do |file|
-      transfers << scp.download(file, "./results/")
+  begin
+    transfers = Array.new
+    Net::SCP.start(target[:host], target[:user], {password: target[:pass], compression: true}) do |scp|
+      files.each do |file|
+        transfers << scp.download(file, "./results/")
+      end
     end
+    transfers.each{|t| t.wait}
+    print "All transfers completed on #{target[:host]}\n".green
+  rescue Exception => e
+    puts e
+    printf "error caused by machine #{target[:host]}.\n".red
   end
-  transfers.each{|t| t.wait}
-  print "All transfers completed on #{target[:host]}\n"
 end
 
 
@@ -185,7 +212,7 @@ def ssh_all(machines, options = {})
       end
 
       begin 
-        Net::SSH.start(target[:host], target[:user], :password => target[:pass], :timeout => 3) do |ssh|
+        Net::SSH.start(target[:host], target[:user], password: target[:pass], timeout: 3) do |ssh|
           yield ssh, target[:user], target[:host]
         end
       rescue Timeout::Error
