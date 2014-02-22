@@ -10,11 +10,17 @@ require 'colorize'
 program :name, 'whale'
 program :version, '0.0.1'
 program :description, 'network control system'
-program :always_trace!
 
+@always_trace = true
+@never_trace = false
 
-targets = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 23, 24, 25, 26, 27, 28, 29];
+# target notes:
+# simpson22 causes zlib compression errors, suspect broken zlib
+# scp upload fails on 29
+targets = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 23, 24, 25, 26, 27, 28];
 totalframes = 72
+
+chunksize = (totalframes.to_f / targets.count).ceil ;
 
 
 command :run do |c|
@@ -56,7 +62,7 @@ command :up do |c|
     end
     # wait for all threads to finish
     threads.each(&:join) #this is hanging on the transfer
-    puts "Check Complete"
+    puts "Check Complete".cyan
   end
 end
 
@@ -74,36 +80,47 @@ command :install do |c|
   c.syntax = 'whale install --mkdir -n numberofmachines -f framelimit'
   c.summary = 'distributed rendering'
   c.description = ''
-  c.option '--mkdir', 'create install directory'
-  c.option '--upload', 'upload the installer'
-  c.option '--compile', 'unzip and compile the installer'
-  
+  c.option '--[no-]mkdir', 'skip creating the install dir'
+  c.option '--[no-]upload', 'skip uploading the installer'
+  c.option '--[no-]compile', 'skip unzipping and compiling the installer'
+
   c.action do |args, options|
+    options.default \
+      mkdir: true,
+      upload: true,
+      compile: true
 
-    puts "packaging installer"
-    `./package_installer.sh`
-    
-    puts "creating install directory"
-    ssh_all(targets) do |ssh, user, host|
-      ssh.exec!("mkdir #{INSTALL_LOCATION}")
-      puts "success!"
+    # package installer
+    `cd install && make clean`
+    `rm -f ./install.zip`
+    `zip -r ./install.zip ./install/Makefile ./install/labs ./install/lib`
+
+    threads = Array.new
+    targets.each_with_index do |i, index| #todo: THREEEEAAAAAADS
+      threads << Thread.new(i, index) do |i, index|
+        target = MACHINES[i];
+        #mkdir
+        Net::SSH.start(target[:host], target[:user], password: target[:pass], timeout: 3) do |ssh| #if options.mkdir
+          ssh.exec!("mkdir #{INSTALL_LOCATION}")
+        end
+        #upload
+        begin
+          Net::SCP.upload!(target[:host], target[:user], "./install.zip", "#{INSTALL_LOCATION}/install.zip", :ssh => { :password => target[:pass] }) #if options.upload
+        rescue Net::SCP::Error => e
+          print "SCP upload failed on #{target[:host]}\n".red
+        end
+        
+        #install 
+        Net::SSH.start(target[:host], target[:user], password: target[:pass], timeout: 3) do |ssh| #if options.compile
+          ssh.exec!("cd #{INSTALL_LOCATION} && unzip -o install.zip")
+          ssh.exec!("mkdir #{INSTALL_LOCATION}/install/bin")
+          ssh.exec!("cd #{INSTALL_LOCATION}/install/ && make lab2.1")
+        end
+        print "Install complete on #{target[:host]}\n".green
+      end
     end
-
-    puts "uploading installer"
-    scp_all((targets), "./install.zip", "#{INSTALL_LOCATION}/install.zip");
-    puts "\n"
-
-    # compile files
-    puts "compiling renderer"
-    ssh_all(targets) do |ssh, user, host|
-      puts "...connection established"
-      ssh.exec!("cd #{INSTALL_LOCATION} && unzip -o install.zip")
-      puts "...installer unzipped"
-      ssh.exec!("mkdir #{INSTALL_LOCATION}/install/bin")
-      puts "...bin directory created"
-      ssh.exec!("cd #{INSTALL_LOCATION}/install/ && make lab2.1")
-      puts "...lab2.1 compiled"
-    end
+    threads.each(&:join) #this is hanging on the transfer
+    puts "Install Complete".cyan
   end
 end
 
@@ -123,8 +140,8 @@ command :render do |c|
       threads << Thread.new(i, index) do |i, index|
         print "starting thread #{index}\n"
         target = MACHINES[i];
-        startframe = (totalframes/targets.count+1)*index
-        endframe = startframe+(totalframes/targets.count+1)-1
+        startframe = chunksize*index
+        endframe = startframe+chunksize-1
         endframe = totalframes if endframe > totalframes
         render(startframe..endframe, target)
         transfer(startframe..endframe, target) if options.transfer
@@ -134,8 +151,7 @@ command :render do |c|
     end
     # wait for all threads to finish
     threads.each(&:join) #this is hanging on the transfer
-    sleep 1
-    puts "Rendering Complete"
+    puts "Rendering Complete".cyan
   end
 end
 
@@ -154,8 +170,8 @@ command :transfer do |c|
       threads << Thread.new(i, index) do |i, index|
         print "starting thread #{index}\n"
         target = MACHINES[i];
-        startframe = (totalframes/targets.count+1)*index
-        endframe = startframe+(totalframes/targets.count+1)-1
+        startframe = chunksize*index
+        endframe = startframe+chunksize-1
         endframe = totalframes if endframe > totalframes
         transfer(startframe..endframe, target)
         

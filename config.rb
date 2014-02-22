@@ -1,5 +1,5 @@
 # the location to install payloads to
-INSTALL_LOCATION = '/home/student/.manatee'
+INSTALL_LOCATION = '/home/student/.whale'
 
 MACHINES = Hash.new { |hash, key| hash[key] = {:host => "simpson#{key.to_s}.lclark.edu", :user => "student", :pass => "student"}}
 
