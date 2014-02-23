@@ -2,7 +2,7 @@
 *A distributed parallel rendering system for my spring 2014 Advanced Graphics class*
 
 ## What it is
-Whale is a control system for performing distributed and parallel rendering via SSH in the Lewis & Clark Simpson linux lab. It can perform a rendering job in three minutes that would take over an hour for a single machine to do. It's based off some code I wrote for a different project that involved paralell SSH.
+Whale is a control system for performing distributed and parallel rendering via SSH in the Lewis & Clark simpson linux lab. It can perform a rendering job in 45 seconds that would take over a half hour for a single machine to do. It's based off some code I wrote for a different project that involved paralell SSH.
 
 ## What it isn't
 Pretty. Whale is held together with SSH, duct tape, and wishful thinking. It works, but the code organization, error handling, and terminal output are all somewhat "unique".
