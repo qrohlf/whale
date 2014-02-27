@@ -17,10 +17,11 @@ program :description, 'network control system'
 # target notes:
 # simpson22 causes zlib compression errors, suspect broken zlib
 # scp upload fails on 29
-targets = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 23, 24, 25, 26, 27, 28];
+# 16 was down last time I checked
+targets = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 17, 18, 19, 20, 21, 23, 24, 25, 26, 27, 28];
 totalframes = 72
 
-chunksize = (totalframes.to_f / targets.count).ceil ;
+chunksize = (totalframes.to_f / targets.count).ceil;
 
 
 command :run do |c|
@@ -41,7 +42,7 @@ command :up do |c|
   c.action do |args, options|
     puts "Checking who's up"
     threads = Array.new
-    targets.each_with_index do |i, index| #todo: THREEEEAAAAAADS
+    (1..29).each_with_index do |i, index| #todo: THREEEEAAAAAADS
       threads << Thread.new(i, index) do |i, index|
         target = MACHINES[i]
         up = false
@@ -91,6 +92,7 @@ command :install do |c|
       compile: true
 
     # package installer
+    puts "packaging installer"
     `cd install && make clean`
     `rm -f ./install.zip`
     `zip -r ./install.zip ./install/Makefile ./install/labs ./install/lib`
@@ -105,7 +107,7 @@ command :install do |c|
         end
         #upload
         begin
-          Net::SCP.upload!(target[:host], target[:user], "./install.zip", "#{INSTALL_LOCATION}/install.zip", :ssh => { :password => target[:pass] }) #if options.upload
+          Net::SCP.upload!(target[:host], target[:user], "./install.zip", "#{INSTALL_LOCATION}/install.zip", :ssh => { password: target[:pass], compression: true}) #if options.upload
         rescue Net::SCP::Error => e
           print "SCP upload failed on #{target[:host]}\n".red
         end
@@ -132,9 +134,9 @@ command :render do |c|
 
   c.action do |args, options|
     `rm -f results/*`
-    puts "deleted stale results"
+    puts "deleted stale results".white
 
-    puts "rendering files"
+    puts "rendering files".white
     threads = Array.new
     targets.each_with_index do |i, index| #todo: THREEEEAAAAAADS
       threads << Thread.new(i, index) do |i, index|
@@ -152,6 +154,7 @@ command :render do |c|
     # wait for all threads to finish
     threads.each(&:join) #this is hanging on the transfer
     puts "Rendering Complete".cyan
+    puts "Transfer Complete".cyan if options.transfer
   end
 end
 
@@ -162,9 +165,9 @@ command :transfer do |c|
 
   c.action do |args, options|
     `rm -f results/*`
-    puts "deleted stale results"
+    puts "deleted stale results".white
 
-    puts "transferring files"
+    puts "transferring files".white
     threads = Array.new
     targets.each_with_index do |i, index| #todo: THREEEEAAAAAADS
       threads << Thread.new(i, index) do |i, index|
@@ -201,7 +204,7 @@ end
 # make sure ./results exists!!!
 def transfer(frames, target)
   files = frames.map { |f| "#{INSTALL_LOCATION}/install/lab21-mov#{sprintf("%04d", f)}.xwd" }
-  print("transferring frames #{frames.first} to #{frames.last} from #{target[:host]}\n")
+  print("transferring frames #{frames.first} to #{frames.last} from #{target[:host]}\n".blue)
   begin
     transfers = Array.new
     Net::SCP.start(target[:host], target[:user], {password: target[:pass], compression: true}) do |scp|
