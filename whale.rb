@@ -14,11 +14,13 @@ program :description, 'network control system'
 @always_trace = true
 @never_trace = false
 
+EXEC = 'bin/lab2.1'
+
 # target notes:
 # simpson22 causes zlib compression errors, suspect broken zlib
 # scp upload fails on 29
-# 16 was down last time I checked
-targets = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 17, 18, 19, 20, 21, 23, 24, 25, 26, 27, 28];
+# 25 is down today
+targets = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 23, 24, 26, 27, 28];
 totalframes = 72
 
 chunksize = (totalframes.to_f / targets.count).ceil;
@@ -38,11 +40,13 @@ end
 
 command :up do |c|
   c.syntax = 'whale up'
-  c.summary = 'check which targets are up'
+  c.summary = 'check which machines are up'
+  c.option '--targets', 'only check the specified targets'
   c.action do |args, options|
     puts "Checking who's up"
     threads = Array.new
-    (1..29).each_with_index do |i, index| #todo: THREEEEAAAAAADS
+    targets = (1..29) unless options.targets
+    targets.each_with_index do |i, index| #todo: THREEEEAAAAAADS
       threads << Thread.new(i, index) do |i, index|
         target = MACHINES[i]
         up = false
@@ -195,7 +199,7 @@ def render(frames, target)
     print "starting framebuffer on #{target[:host]}\n"
     ssh.exec!("Xvfb :30 -ac -screen 0 1024x768x24")
     frames.each do |framenum|
-      ssh.exec("cd #{INSTALL_LOCATION}/install && DISPLAY=':30' bin/lab2.1 lab21-mov #{framenum}")
+      ssh.exec("cd #{INSTALL_LOCATION}/install && DISPLAY=':30' #{EXEC} lab21-mov #{framenum}")
     end
     ssh.loop #wait for all frames to finish rendering
   end
