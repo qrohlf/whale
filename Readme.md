@@ -13,14 +13,19 @@ gem install commander colorize timeout
 ```
 
 ### 1. prep files
-put all the stuff you want to deploy into a file called install.zip in the same directory as whale.rb.
+put all the stuff you want to deploy into a file called install.zip on the desktop of `student@SOURCE`.
 
 ### 2. check your connection
 ```
 ./whale.rb up
 ```
 
-### 3. deploy
+### 3. deploy to load-balancing servers
+```
+../whale.rb install --sources
+```
+
+### 4. deploy to lab
 ```
 ../whale.rb install
 ```
