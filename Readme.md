@@ -1,16 +1,32 @@
-# Whale
-*A distributed parallel rendering system for my spring 2014 Advanced Graphics class*
+# Sup Miles
+You can run this on one of the maclab machines or on your laptop. Just make sure you've got a ruby version that's >= 1.9.3
 
-## What it is
-Whale is a control system for performing distributed and parallel rendering via SSH in the Lewis & Clark simpson linux lab. It can perform a rendering job in 45 seconds that would take over a half hour for a single machine to do. It's based off some code I wrote for a different project that involved parallel SSH.
+## Instructions
 
-## What it isn't
-Pretty. Whale is held together with SSH, duct tape, and wishful thinking. It works, but the code organization, error handling, and terminal output are all somewhat "unique".
+Setup: 
 
-## What it does
-Whale is designed to perform the following tasks
+```bash
+git clone git@github.com:qrohlf/whale.git
+cd whale
+git checkout miles-stuff
+gem install commander colorize timeout
+```
 
-1. Upload, install, and compile the rendering code on all target machines.
-2. Split a rendering job into blocks and assign each block of work to a target machine.
-3. Render all of the frames from the block in parallel on the target machine.
-4. Transfer all of the rendered frames back to the control machine in parallel via SCP.
+### 1. prep files
+put all the stuff you want to deploy into a file called install.zip in the same directory as whale.rb.
+
+### 2. check your connection
+```
+./whale.rb up
+```
+
+### 3. deploy
+```
+../whale.rb install
+```
+
+everything in install.zip will be SCP'd to the maclabs in parallel and unzipped to the desktop of the Student user.
+
+(you can edit where the files are copied to in `config.rb:2` and add ssh commands to execute after the files are unzipped in `whale.rb:125`)
+
+:boom: BOOM :boom:

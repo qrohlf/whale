@@ -18,7 +18,7 @@ program :description, 'network control system'
 # simpson22 causes zlib compression errors, suspect broken zlib
 # scp upload fails on 29
 # 16 was down last time I checked
-targets = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 17, 18, 19, 20, 21, 23, 24, 25, 26, 27, 28];
+targets = (1..21) #[2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 17, 18, 19, 20, 21, 23, 24, 25, 26, 27, 28];
 totalframes = 72
 
 chunksize = (totalframes.to_f / targets.count).ceil;
@@ -91,32 +91,38 @@ command :install do |c|
       upload: true,
       compile: true
 
-    # package installer
-    puts "packaging installer"
-    `cd install && make clean`
-    `rm -f ./install.zip`
-    `zip -r ./install.zip ./install/Makefile ./install/labs ./install/lib`
-
     threads = Array.new
     targets.each_with_index do |i, index| #todo: THREEEEAAAAAADS
       threads << Thread.new(i, index) do |i, index|
         target = MACHINES[i];
         #mkdir
-        Net::SSH.start(target[:host], target[:user], password: target[:pass], timeout: 3) do |ssh| #if options.mkdir
-          ssh.exec!("mkdir #{INSTALL_LOCATION}")
-        end
+
+        
         #upload
         begin
+          Net::SSH.start(target[:host], target[:user], password: target[:pass], timeout: 3) do |ssh| #if options.mkdir
+            ssh.exec!("mkdir #{INSTALL_LOCATION}")
+          end
+
           Net::SCP.upload!(target[:host], target[:user], "./install.zip", "#{INSTALL_LOCATION}/install.zip", :ssh => { password: target[:pass], compression: true}) #if options.upload
+          
+          print "SCP upload completed on #{target[:host]}\n".cyan
+        rescue Net::SSH::AuthenticationFailed
+          print "SSH Authentication failed on #{target[:host]}\n".red
+          Thread.exit
         rescue Net::SCP::Error => e
           print "SCP upload failed on #{target[:host]}\n".red
+          Thread.exit
+        rescue Timeout::Error
+          print "SSH timed out on #{target[:host]}\n".red
+          Thread.exit
         end
         
-        #install 
+        # install 
+        # run whatever installation commands you want to here
         Net::SSH.start(target[:host], target[:user], password: target[:pass], timeout: 3) do |ssh| #if options.compile
           ssh.exec!("cd #{INSTALL_LOCATION} && unzip -o install.zip")
-          ssh.exec!("mkdir #{INSTALL_LOCATION}/install/bin")
-          ssh.exec!("cd #{INSTALL_LOCATION}/install/ && make lab2.1")
+          ssh.exec!("cd #{INSTALL_LOCATION} && rm -rf install.zip")
         end
         print "Install complete on #{target[:host]}\n".green
       end
