@@ -18,7 +18,8 @@ program :description, 'network control system'
 # simpson22 causes zlib compression errors, suspect broken zlib
 # scp upload fails on 29
 # 16 was down last time I checked
-targets = (1..21) #[2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 17, 18, 19, 20, 21, 23, 24, 25, 26, 27, 28];
+sources = (1..4) #[2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 17, 18, 19, 20, 21, 23, 24, 25, 26, 27, 28];
+targets = (5..22)
 totalframes = 72
 
 chunksize = (totalframes.to_f / targets.count).ceil;
@@ -84,29 +85,41 @@ command :install do |c|
   c.option '--[no-]mkdir', 'skip creating the install dir'
   c.option '--[no-]upload', 'skip uploading the installer'
   c.option '--[no-]compile', 'skip unzipping and compiling the installer'
+  c.option '--sources', 'deploy from SOURCE to sources for load-balancing'
 
   c.action do |args, options|
     options.default \
       mkdir: true,
       upload: true,
-      compile: true
+      compile: true,
+      sources: false
+
+    targets = sources if options.sources
 
     threads = Array.new
     targets.each_with_index do |i, index| #todo: THREEEEAAAAAADS
+      next if MACHINES[i] == SOURCE; #don't do it on maclabcs1
+      
+      if i == 1 # double-check to make sure you're not being an idiot
+        puts "wrong wrong wrong"
+        next
+      end
       threads << Thread.new(i, index) do |i, index|
         target = MACHINES[i];
         #mkdir
 
+        source = MACHINES[sources.to_a.sample] #load balancing I AM A SORCERER
+        copy = scp_auto(source[:user], source[:host], source[:pass], "/Users/student/Desktop/install.zip", "/Users/student/#{INSTALL_LOCATION}")
         
         #upload
         begin
           Net::SSH.start(target[:host], target[:user], password: target[:pass], timeout: 3) do |ssh| #if options.mkdir
             ssh.exec!("mkdir #{INSTALL_LOCATION}")
+            ssh.exec!("rm -rf /Users/student/Desktop/install.zip") # scp doesn't like to clobber
+            print "Starting SCP on #{target[:host]} (source #{source[:host]}) \n".magenta
+            ssh.exec!(copy)
+            print "SCP transfer completed on #{target[:host]}\n".cyan
           end
-
-          Net::SCP.upload!(target[:host], target[:user], "./install.zip", "#{INSTALL_LOCATION}/install.zip", :ssh => { password: target[:pass], compression: true}) #if options.upload
-          
-          print "SCP upload completed on #{target[:host]}\n".cyan
         rescue Net::SSH::AuthenticationFailed
           print "SSH Authentication failed on #{target[:host]}\n".red
           Thread.exit
@@ -121,8 +134,11 @@ command :install do |c|
         # install 
         # run whatever installation commands you want to here
         Net::SSH.start(target[:host], target[:user], password: target[:pass], timeout: 3) do |ssh| #if options.compile
+          print "Unzipping your junk on #{target[:host]}\n".magenta
           ssh.exec!("cd #{INSTALL_LOCATION} && unzip -o install.zip")
-          ssh.exec!("cd #{INSTALL_LOCATION} && rm -rf install.zip")
+          # ssh.exec!("cd #{INSTALL_LOCATION} && rm -rf install.zip")
+          print "Done unzipping your junk on #{target[:host]}\n".cyan
+          ssh.exec!("cd #{INSTALL_LOCATION} && mv quinn kaliVM")
         end
         print "Install complete on #{target[:host]}\n".green
       end
@@ -265,4 +281,17 @@ def scp_all(machines, file, dest)
       end
     end
   end
+
+def scp_auto(user, host, password, file, dest) 
+  "expect -c \"spawn scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null #{user}@#{host}:#{file} #{dest}
+    set timeout 5
+    expect {
+        \"*Password:*\" { send #{password}\\n; interact }
+        eof { exit }
+        timeout { puts \\n--TIMEOUT!--\\n;exit}
+    }
+    exit\""
+end
+
+
 
