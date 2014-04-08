@@ -14,17 +14,15 @@ program :description, 'network control system'
 @always_trace = true
 @never_trace = false
 
-EXEC = 'bin/lab2.1'
+JOB = 'lab2.1' #the make target to build and bin file to run (bin/$filename must match make target)
 
 # target notes:
 # simpson22 causes zlib compression errors, suspect broken zlib
 # scp upload fails on 29
 # 25 is down today
-targets = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 23, 24, 26, 27, 28];
-totalframes = 72
-
-chunksize = (totalframes.to_f / targets.count).ceil;
-
+targets = (2..29).to_a - [25, 9, 3, 29] #exclude non-working machines
+startframe = 0
+endframe = 72
 
 command :run do |c|
   c.syntax = 'whale run "[command --opts]"'
@@ -131,7 +129,7 @@ command :install do |c|
         Net::SSH.start(target[:host], target[:user], password: target[:pass], timeout: 3) do |ssh| #if options.compile
           ssh.exec!("cd #{INSTALL_LOCATION} && unzip -o install.zip")
           ssh.exec!("mkdir #{INSTALL_LOCATION}/install/bin")
-          ssh.exec!("cd #{INSTALL_LOCATION}/install/ && make lab2.1")
+          ssh.exec!("cd #{INSTALL_LOCATION}/install/ && make #{JOB}")
           ssh.exec!("cd #{INSTALL_LOCATION} && rm -rf install.zip")
         end
         print "Install complete on #{target[:host]}\n".green
@@ -154,15 +152,16 @@ command :render do |c|
 
     puts "rendering files".white
     threads = Array.new
-    targets.each_with_index do |i, index| #todo: THREEEEAAAAAADS
-      threads << Thread.new(i, index) do |i, index|
+    # split frames into chunks 
+    framechunks = (startframe..endframe).each_slice( ((startframe..endframe).count / targets.count).floor ).to_a
+    jobs = framechunks.each_with_index.map{|f, i| {frames: f, target: targets[i%targets.count]}}
+
+    jobs.each_with_index do |job, index| #todo: THREEEEAAAAAADS
+      threads << Thread.new(job, index) do |job, index|
         print "starting thread #{index}\n"
-        target = MACHINES[i];
-        startframe = chunksize*index
-        endframe = startframe+chunksize-1
-        endframe = totalframes if endframe > totalframes
-        render(startframe..endframe, target)
-        transfer(startframe..endframe, target) if options.transfer
+        target = MACHINES[job[:target]];
+        render(job[:frames], target)
+        transfer(job[:frames], target) if options.transfer
         
         print "exiting thread #{index}\n"
       end
@@ -208,10 +207,10 @@ def render(frames, target)
     #clean previous run synchronously
     ssh.exec!("cd #{INSTALL_LOCATION}/install && rm -rf ./*.xwd")
     #start framebuffer synchronously
-    print "starting framebuffer on #{target[:host]}\n"
     ssh.exec!("Xvfb :30 -ac -screen 0 1024x768x24")
+    print "started framebuffer on #{target[:host]}\n".green
     frames.each do |framenum|
-      ssh.exec("cd #{INSTALL_LOCATION}/install && DISPLAY=':30' #{EXEC} lab21-mov #{framenum}")
+      ssh.exec("cd #{INSTALL_LOCATION}/install && DISPLAY=':30' bin/#{JOB} lab21-mov #{framenum}")
     end
     ssh.loop #wait for all frames to finish rendering
   end
